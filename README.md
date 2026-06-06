@@ -3,9 +3,10 @@
 Version-controlled home for the knowledge Claude has accumulated working on Maverick Ideas
 projects — hard-won gotchas, playbooks, integration details, and project context.
 
-These are the **canonical, reviewable copies**. Claude's live per-machine memory lives at
-`~/.claude/projects/<project>/memory/`; it's synced here so the knowledge is version-controlled,
-shareable, and travels to other machines / Claude accounts.
+This repo is the **single source of truth**. On the primary machine, Claude's live memory folder
+(`~/.claude/projects/<project>/memory/`) is a **directory junction** pointing into this repo, so the
+knowledge is version-controlled *and* Claude keeps reading/writing it live — edits Claude makes to
+memory show up here as changes, ready to commit.
 
 ## Contents
 
@@ -19,10 +20,20 @@ shareable, and travels to other machines / Claude accounts.
   `/watch-inprogress` watcher + portable CI/CD onboarding kit
 
 ## Using it on another machine / account
-Clone this repo, then copy the relevant files into that machine's
-`~/.claude/projects/<project>/memory/` so Claude loads them as memory — or just read them for
-reference.
+Clone this repo, then point that machine's memory folder at it with a junction (PowerShell, no admin,
+works across drives):
+
+```powershell
+$link   = "$env:USERPROFILE\.claude\projects\D--Maverick-Ideas-LLC-GitHub-Stock-Sentiment-App\memory"
+$target = "<clone-path>\Cluade_KB\optix"
+if (Test-Path $link) { Remove-Item $link -Recurse -Force }   # only if empty / safe to replace
+New-Item -ItemType Junction -Path $link -Target $target
+```
+
+(The encoded folder name is the project's absolute path with separators replaced by `-`. Or just read
+the files directly for reference.)
 
 ## Keeping it in sync
-Treat the local `.claude` memory as the working copy; export changes here (re-copy the files)
-to version them. The local copies must remain in `.claude` for Claude's auto-memory to work.
+Because the live memory folder *is* this repo (via the junction), anything Claude writes to memory
+appears here as an uncommitted change — commit periodically to keep the history. Nothing here is
+secret: notes and IDs, not credentials.
