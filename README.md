@@ -1,4 +1,4 @@
-# Cluade_KB — Claude Knowledge Base (Maverick Ideas)
+# Claude_KB — Claude Knowledge Base (Maverick Ideas)
 
 Version-controlled home for the knowledge Claude has accumulated working on Maverick Ideas
 projects — hard-won gotchas, playbooks, integration details, and project context.
@@ -25,7 +25,7 @@ works across drives):
 
 ```powershell
 $link   = "$env:USERPROFILE\.claude\projects\D--Maverick-Ideas-LLC-GitHub-Stock-Sentiment-App\memory"
-$target = "<clone-path>\Cluade_KB\optix"
+$target = "<clone-path>\Claude_KB\optix"
 if (Test-Path $link) { Remove-Item $link -Recurse -Force }   # only if empty / safe to replace
 New-Item -ItemType Junction -Path $link -Target $target
 ```
