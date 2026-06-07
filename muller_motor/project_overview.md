@@ -40,7 +40,10 @@ metadata:
 
 ## Status
 - **Phase 1 ( boot chain ) VERIFIED 2026-06-07**: a signed FSBL boots from external flash and blinks LED1, via a repeatable build, sign, and flash pipeline. See `muller_motor_learnings.md` for the playbook.
-- **Next ( Phase 2 )**: port the motor firmware, then split time critical control ( stays on the N6, ideally from SRAM or TCM for low jitter ) from brain logic ( mini PC over isolated Ethernet ).
+- **Phase 2 comms VERIFIED 2026-06-07**: N6 to host Ethernet over a direct cable ( static IP, ping about 1 ms, app level UDP echo on port 5005 ). See `ethernet_comms.md`.
+- **Phase 2 port plan and pin mapping done**: `phase2_port_plan.md`, `pin_mapping.md`. The split: time critical control on the N6, brain logic on the mini PC over isolated Ethernet.
+- **M0 verified, M1 built**: first control firmware on the N6 ( DWT timebase; one channel from a hardware timer with a loopback self test ). Source: `firmware\control_app\main.c`. Resume guide: `docs\RESUME.md`.
+- **Next**: finish M1 verification, then M2 ( five channels ), M3 ( Hall capture ), per the port plan. The mini PC ( the brain ) is the next host.
 
 ## Primary references
 - UM3234 ( boot ROM on STM32N6 ), UM3300 ( STM32N6570-DK ), UM3239 ( getting started with STM32CubeN6 ), the STM32N657X0 datasheet, and the STM32N6 reference manual.

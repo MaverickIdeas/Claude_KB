@@ -53,6 +53,36 @@ Exact commands the scripts run:
 - **Docs** in `docs\`: `boot_flash_signing.md` ( the why and how of the N6 boot ) and `README_FLASH.md` ( the operational runbook ).
 - **GitHub**: the repo was made PRIVATE before any push; `MaverickIdeas/Muller_Motor_STM32N6`.
 
+## Phase 2: Ethernet comms to the host ( verified 2026-06-07 )
+
+The N6 and a host PC ( temp brain ) exchange Ethernet over a direct cable. Board 192.168.10.10/24, host 192.168.10.20/24 ( static; there is no DHCP on a direct link ), ping about 1 ms, board MAC 00:80:E0:00:10:00. Firmware is ST's Nx_WebServer NetXDuo example adapted for a static IP with no SD card, plus a UDP echo on port 5005. Repo writeup: docs/ethernet_comms.md.
+
+Gotchas we hit and SOLVED:
+
+12. **No SD card is fatal in the NetXDuo web server example.** `MX_SDMMC2_SD_Init()` runs in main() BEFORE the console UART and BEFORE the network. Without a card it fails into Error_Handler ( red LED 1 Hz, no console, no network, no ARP ). It looks like a dead board or an Ethernet failure, but it is the SD init. Skip the call ( comment it ) or insert a card. This cost the most time in Phase 2.
+
+13. **NetXDuo on a direct link needs a static IP.** No DHCP server, so set NX_APP_DEFAULT_IP_ADDRESS/NET_MASK in app_netxduo.h and, in nx_app_thread_entry, remove the nx_dhcp_start plus the `tx_semaphore_get( DHCPSemaphore, TX_WAIT_FOREVER )` wait ( it blocks forever ). Also convert App_Link_Thread_Entry's DHCP restart block ( nx_dhcp_reinitialize clears the static IP and then it hangs on a relink ). The NetX IP thread auto enables the link, so ARP answers once boot reaches it; no manual NX_LINK_ENABLE is needed on first boot.
+
+14. **STM32_SigningTool_CLI hangs on an overwrite prompt** when the output file already exists and there is no console to answer. Pipe y into it ( `"y" | STM32_SigningTool_CLI ...`, ST's `echo y` trick ). Otherwise the board never gets reflashed and you chase a phantom firmware bug.
+
+15. **A 1 Gbps link light means nothing about the stack.** The RTL8211 PHY auto negotiates even under unrelated firmware, so Windows shows the NIC up at 1 Gbps while the board answers nothing. Diagnose at the app layer ( ping, ARP, the board console ), not the link light.
+
+16. **N6570-DK ETH is RGMII to an RTL8211; the ETH DMA descriptors and NetX packet pools sit in the non cacheable AXISRAM2 window** ( 0x341D4000 to 0x341FFFFF ) with the MPU set to match ( ST's linker does this; confirm in the build .map ). So cache coherency is usually not the bug; check the SD init and the static IP conversion first.
+
+Win: app level test is `tools\udp_echo_test.ps1` ( host sends UDP, board echoes on port 5005 ). Set the host NIC static with `netsh interface ip set address name=Ethernet static 192.168.10.20 255.255.255.0`. The mini PC ( the real brain, arriving 2026-06-08 ) uses the same scheme.
+
+## Phase 2 control milestones ( M0, M1 ) — 2026-06-07
+
+- **M0 VERIFIED**: control skeleton from SRAM ( ST GPIO_IOToggle FSBL base, runs from AXISRAM2 ), the M55 DWT cycle counter as the microsecond timebase, and a 1 Hz LED heartbeat. Source preserved in the repo at `firmware\control_app\main.c`.
+- **M1 built ( bench verify pending )**: channel 1 from a hardware timer ( TIM1_CH1 on PE9 = Arduino D3 ), a 10 ms / 2 ms one pulse, with a loopback self test ( jumper D3 to D14; TIM4_CH4 on PC1 captures both edges and the firmware checks duty and jitter ), reporting on LED1 ( 1 Hz = pass, 5 Hz = fail ). A scope on D3 gives the absolute timing.
+- **Pin mapping** ( `docs\pin_mapping.md` ): 5 outputs on TIM1 CH1..4 plus TIM2 CH3; 5 Hall inputs on TIM4, TIM2, TIM16, TIM14; conflict free against the Ethernet, flash, LED, and VCP pins. The legacy Arduino pin numbers do NOT map.
+
+More gotchas:
+
+17. **Avoid HAL module surgery: use DWT and direct timer registers.** The minimal GPIO_IOToggle build does not enable HAL_TIM or HAL_UART. Rather than add HAL sources to the .project, use the M55 DWT cycle counter for the timebase and configure TIM1/TIM4 by direct register writes ( the HAL RCC and GPIO clock and pin macros ARE available ). Compiles clean, no build config change.
+18. **N6 timer clock is uncertain ( 200 vs 400 MHz ).** PCLK is 200 MHz; whether TIMxCLK doubles is unconfirmed. M1 sets the prescaler for 200 MHz; the loopback self test checks duty and jitter ( clock independent ), and a scope on the output gives the absolute period ( if it is half, the clock is 400 MHz; halve the prescaler ).
+19. **N6 pin mapping ground truth = the ST/Zephyr pinctrl** `stm32n657x0hxq-pinctrl.dtsi` plus the Zephyr `arduino_r3_connector.dtsi`, both on GitHub. The datasheet AF table is Akamai blocked; the Zephyr pinctrl is derived from it and is fetchable.
+
 ## Verified facts ( this PC, June 2026 )
 - STLINK V3EC: VID 0483 PID 3754, COM19, SN 001F00453234511233353533, FW V3J15M6. Board Device ID 0x486, Rev B, 3.29 V.
 - STM32CubeProgrammer 2.22.0; STM32CubeIDE 2.1.1 ( C:\ST\STM32CubeIDE_2.1.1 ); STM32 signing tool 2.22.0.
