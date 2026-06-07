@@ -19,6 +19,11 @@ memory show up here as changes, ready to commit.
   limits, sprints≠versions, model migration, functions deploy), shipped wins, and the
   `/watch-inprogress` watcher + portable CI/CD onboarding kit
 
+### `muller_motor/` — Muller motor controller firmware on the STM32N6570-DK
+- **`MEMORY.md`** — index of the Muller motor memory files
+- **`project_overview.md`** — hardware, boot model, address map, architecture split, toolchain, Phase 1 status
+- **`muller_motor_learnings.md`** — the verified build → sign → flash playbook + gotchas (Akamai block, Windows long paths, CubeN6 submodules, GCC for Cortex M55, batch parens, boot switch H/L) + wins
+
 ## Using it on another machine / account
 Clone this repo, then point that machine's memory folder at it with a junction (PowerShell, no admin,
 works across drives):
