@@ -118,6 +118,34 @@ protocol. Three findings that correct working assumptions:
     No energy ( Wh ) and no temperature are measured. Repo writeup:
     `docs\nano_power_dataflow.md`.
 
+## Dashboard pivot ( App dropped, mini PC is the head ) — 2026-06-08
+
+23. **The Android App is dropped; the mini PC is the primary UI and commander.**
+    It commands the N6 directly over the UDP link ( `[CMD]` out, `[TELEM]` 112 byte
+    v1 back ), is BLE central for the nano power boards, and is the config master.
+    This DELETES the BLE GATT server ( the old brain plan's main job ), the v1 to
+    v2 splice toward the App, and the dual role radio need. Authoritative plan:
+    `docs\minipc_dashboard_plan.md` ( U0 to U7 ); `docs\minipc_brain_plan.md` is
+    superseded.
+24. **Build the dashboard by extending `muller-motor-python-gui` ( Tkinter, 454
+    lines, v1.7 ), but swap TWO layers, not one.** Reuse its structure, threading,
+    widgets ( ~70 percent ). ( a ) Transport: it is serial / pyserial 115200 only,
+    swap to a UDP datagram client to 192.168.10.10:5005. ( b ) Codec: it speaks an
+    ASCII line protocol ( `RUN`, `STOP`, `CONFIG:FREQ:..` ) proven against the
+    Arduino sim, but the N6 speaks the BINARY MMCProtocol ( cmds 0x01 to 0x0F,
+    little endian, 112 byte v1 telemetry per `static_assert` in MMCProtocol.h ).
+    Replacing only the socket is the trap; the wire codec changes too.
+25. **No v2 ( 140 byte ) telemetry frame exists in the protocol header.** The 112
+    byte v1 struct has motor data only; the power V / I / W / COP comes from the
+    nano BLE block as a SEPARATE input. The dashboard merges the two in memory; it
+    never needs a v2 wire frame. ( Earlier notes that called the nano packet a
+    "140 byte v2" describe the nano's own BLE payload, not an N6 telemetry frame. )
+26. **Dropping the App flips the OS choice: a single Windows box is now the clean
+    default.** The only hard on Windows job was the App facing BLE GATT server,
+    which is gone. The remaining BLE is central only ( `bleak`, fine on Windows ),
+    everything else is OS neutral, and the firmware toolchain already runs on
+    Windows. Revisit Linux only if it becomes a 24/7 unattended appliance.
+
 ## Verified facts ( this PC, June 2026 )
 - STLINK V3EC: VID 0483 PID 3754, COM19, SN 001F00453234511233353533, FW V3J15M6. Board Device ID 0x486, Rev B, 3.29 V.
 - STM32CubeProgrammer 2.22.0; STM32CubeIDE 2.1.1 ( C:\ST\STM32CubeIDE_2.1.1 ); STM32 signing tool 2.22.0.

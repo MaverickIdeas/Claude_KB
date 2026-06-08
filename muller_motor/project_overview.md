@@ -45,7 +45,17 @@ metadata:
 - **M0 VERIFIED. M1 BUILT and FLASHED but BENCH VERIFICATION PENDING.** M2 is NOT started. First control firmware on the N6 ( DWT timebase; one channel from TIM1 with a TIM4 loopback self test ). Source: `firmware\control_app\main.c`. Authoritative milestone ledger and the resume banner: `docs\RESUME.md`.
 - **Current gate**: M1 must be bench verified ( jumper D3 to D14, scope D3 for 10 ms / 2 ms, LED1 1 Hz = pass ) BEFORE M2 begins. Do not skip ahead to M2.
 - **Then**: M2 ( five channels open loop ), M3 ( Hall capture ), M4 to M8 per the port plan.
-- **Parallel ( planning done, not built )**: touchscreen dashboard ( `docs\touchscreen_plan.md`, D0 to D6 ), mini PC brain BLE to UDP hub ( `docs\minipc_brain_plan.md`, B1 to B5 ), mini PC backend access ( `docs\minipc_backend_creds.md` ), and nano power data flow ( `docs\nano_power_dataflow.md` ). The mini PC ( the brain ) is now the host; the session moved to it 2026-06-08.
+- **PIVOT 2026-06-08, the App is dropped; the mini PC is the HEAD.** The mini PC
+  is now the primary UI and commander of the N6 over UDP, not a BLE relay for a
+  phone. Authoritative plan: `docs\minipc_dashboard_plan.md` ( milestones U0 to
+  U7 ). Extend the existing `muller-motor-python-gui` ( Tkinter ); swap its
+  transport ( serial to UDP ) AND codec ( ASCII to the binary MMCProtocol, cmds
+  0x01 to 0x0F, 112 byte v1 telemetry ), add BLE central for the nanos. Dropping
+  the App removes the BLE GATT server, so a single WINDOWS box ( firmware dev +
+  dashboard ) is now the clean default. `docs\minipc_brain_plan.md` ( B1 to B5 )
+  is SUPERSEDED. The N6 touchscreen ( `docs\touchscreen_plan.md` ) stays as a thin
+  link independent safety mirror + touch STOP ( D0 to D5 ), complementary to the
+  mini PC dashboard.
 - **Backend reality ( corrected 2026-06-08 )**: the production App does NOT push to any cloud backend; it is a pure BLE controller on master. The mini PC will be the FIRST server side writer to Firebase + BigQuery and needs its OWN Google Cloud service account key ( does not exist yet, must be minted in the motor's `muller-motor-controller` project; NOT `optix-2ddbc` ). The nano power boards ( input and output ) are BLE peripherals that NOTIFY a 140 byte v2 telemetry packet at ~5 Hz and today pair with the App; the mini PC must add a BLE central role to ingest them. See the two docs above and `muller_motor_learnings.md`.
 
 ## Primary references
