@@ -83,6 +83,41 @@ More gotchas:
 18. **N6 timer clock is uncertain ( 200 vs 400 MHz ).** PCLK is 200 MHz; whether TIMxCLK doubles is unconfirmed. M1 sets the prescaler for 200 MHz; the loopback self test checks duty and jitter ( clock independent ), and a scope on the output gives the absolute period ( if it is half, the clock is 400 MHz; halve the prescaler ).
 19. **N6 pin mapping ground truth = the ST/Zephyr pinctrl** `stm32n657x0hxq-pinctrl.dtsi` plus the Zephyr `arduino_r3_connector.dtsi`, both on GitHub. The datasheet AF table is Akamai blocked; the Zephyr pinctrl is derived from it and is fetchable.
 
+## Phase 2 system architecture ( brain, backend, power boards ) — found 2026-06-08
+
+Cross repo investigation of the App, Uno Q relay, nano power firmware, and
+protocol. Three findings that correct working assumptions:
+
+20. **The App does NOT push to any cloud backend.** On master and develop,
+    `Muller_Motor_App` is a pure BLE controller; its only network call is an
+    anonymous read of the public GitHub Releases API. There is no Firebase SDK,
+    no BigQuery client, and no server credential on the shipping branches. So the
+    mini PC is the FIRST server side writer in the system, not an inheritor of an
+    existing pipeline. ( An unmerged `feature/autotune` branch started Firebase /
+    Firestore work against a real motor project `muller-motor-controller`, but
+    that is client config plus interactive Firebase CLI login, NOT a server key. )
+21. **`google-services.json` is a client config, not a server credential.** The
+    mini PC, an unattended server, needs its OWN Google Cloud service account
+    JSON key with least privilege IAM ( `roles/datastore.user`,
+    `roles/bigquery.dataEditor` scoped to one dataset, `roles/bigquery.jobUser` ).
+    It does not exist yet; mint it in `muller-motor-controller`. Do NOT reuse
+    `optix-2ddbc` ( that is the separate OPTIX stock sentiment product ). Store
+    the key only on the mini PC at `/etc/muller-brain/sa.json`, referenced via
+    `GOOGLE_APPLICATION_CREDENTIALS` in a systemd `EnvironmentFile`, never in git.
+    Never let a key reach the auto pushing Claude_KB. Repo writeup:
+    `docs\minipc_backend_creds.md`.
+22. **The nano power boards are BLE peripherals; the mini PC must become a BLE
+    central to read them.** Each board ( PwrMeter3 ) advertises the standard
+    Muller service `19B10000-...` with name `MMC-Input-PWR` or `MMC-Output-PWR`,
+    and NOTIFYs a 140 byte v2 telemetry packet on TELEM `19B10002-...` at ~5 Hz
+    with a 28 byte power block at offset 112 ( two ACS37800 slots per board:
+    pwr_v[2], pwr_i[2], pwr_w[2], flags, state ). Today they pair directly with
+    the App; the Uno Q relay was a GATT server only, so the BLE central role is
+    new work ( brain milestone B4 ). Input vs output is set at build time
+    ( `-DMMC_ROLE_OUTPUT` ) and read from the advertised name or the INFO char.
+    No energy ( Wh ) and no temperature are measured. Repo writeup:
+    `docs\nano_power_dataflow.md`.
+
 ## Verified facts ( this PC, June 2026 )
 - STLINK V3EC: VID 0483 PID 3754, COM19, SN 001F00453234511233353533, FW V3J15M6. Board Device ID 0x486, Rev B, 3.29 V.
 - STM32CubeProgrammer 2.22.0; STM32CubeIDE 2.1.1 ( C:\ST\STM32CubeIDE_2.1.1 ); STM32 signing tool 2.22.0.
