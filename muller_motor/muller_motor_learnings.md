@@ -198,3 +198,57 @@ it. State found and advanced this session:
     write straight into the repo on this box. ( The session working dir is the
     GitHub parent, so decide whether one junction serves the whole folder or per
     repo. )
+
+## M2 flashed + verified, and the touchscreen ( D0/D1 ) brought up ( 2026-06-08 )
+
+The ST toolchain landed; M2 built clean ( 0 errors ), a 15 agent adversarial
+review found no blocking bug, and M2 plus a live LTDC display are flashed and
+verified on the board.
+
+31. **Re flashing the N6 needs DEV boot ( BOOT1 = H ) AND a power cycle, then
+    mode=UR.** Two distinct failures seen: ( a ) HOTPLUG with the board running
+    its old image gives "Unable to get core ID" because the boot pins were latched
+    at the last power on; mode=UR ( connect Under Reset ) re samples them and
+    fixed it. ( b ) Even with UR, if the board is in FLASH boot the external flash
+    is memory mapped and erase fails with "failed to erase memory". Fix: set
+    BOOT1 = H ( DEV boot ), POWER CYCLE so the flash is not mapped, then flash with
+    mode=UR. After flashing, BOOT1 = L ( Flash boot ) + power cycle to run.
+    `tools\build_control.bat` and `tools\build_lcd.bat` now use mode=UR. The
+    programmer's clean exit ( erase, download, exit 0 ) is the source of truth,
+    not a memory readback ( gotcha 11 ).
+
+32. **LTDC display bring up on the N6570-DK is far simpler than the full BSP: the
+    RK050HR18 is a dumb parallel RGB panel.** Drive it via HAL_LTDC DIRECTLY
+    ( ST's `LTDC_Horizontal_Mirroring` FSBL example is the base ), no MIPI / panel
+    command driver. What it needs: the 800x480 timing ( HSync 4, VSync 4, AccHBP
+    12, AccVBP 12, AccActiveW 812, AccActiveH 492, Total 820x500 ), a PLL4 pixel
+    clock ( PLL4 M=1 N=25 in SystemClock_Config, ON not NONE ), backlight + on via
+    GPIOQ ( LCD_BL_CTRL PQ6, LCD_ONOFF PQ3 ), and the N6 RIF master config
+    ( HAL_RIF_RIMC_ConfigMasterAttributes for RIF_MASTER_INDEX_LTDC1 +
+    HAL_RIF_RISC_SetSlaveSecureAttributes for LTDCL1 ) or the LTDC cannot read the
+    framebuffer. HAL_LTDC_MspInit ( the RGB pin + clock config ) lives in
+    `stm32n6xx_hal_msp.c`, a separate compiled file, so swapping the project's
+    main.c keeps it. The BSP submodules ( `Drivers/BSP/STM32N6570-DK`, components
+    `rk050hr18`, `gt911` ) are NOT in the base clone; init them ( get_cuben6 only
+    did HAL + CMSIS ).
+
+33. **Framebuffer choices that de risk the display ( verified D1 ).** Use a SMALL
+    layer ( we used 256x160 RGB565 = 80 KB ) as a plain RAM static array, not a
+    full 800x480 buffer at 0x34000000: 80 KB fits the FSBL RAM region, so no
+    custom linker region, no 0x34000000 access / extra RIF question. Keep D-cache
+    OFF ( the LTDC example never enables it ), so CPU framebuffer writes are
+    coherent with the LTDC DMA and no SCB_CleanDCache is needed; enabling D-cache
+    ( as the GPIO_IOToggle M2 base did ) would show a stale / garbage screen
+    unless every frame is flushed. Single buffered is fine for a liveness animation
+    ( minor tearing ); a double buffer + DMA2D is the D3 refinement. The motor I/O
+    pins ( PE9, PA9, PE13, PE14, PB10 ) do not collide with any LTDC pin
+    ( pin_mapping cross check held ), so M2 and the panel coexist in one FSBL.
+
+34. **The combined firmware ( M2 + live display ) is `firmware\control_app\main_lcd.c`
+    built in the LTDC project via `tools\build_lcd.bat`; pure M2 stays
+    `firmware\control_app\main.c` via `tools\build_control.bat`.** main_lcd.c
+    inlines the M2 scheduler verbatim ( a shared control core is a follow up ) and
+    redraws at ~20 Hz from the main loop ( draw_frame pauses the control poll for
+    under a millisecond every 50 ms; acceptable open loop, revisit with DMA2D ).
+    The five on screen activity blocks ( green when a channel fired ) are an easy
+    live readout of the control loop and confirmed all five channels firing.
