@@ -42,8 +42,10 @@ metadata:
 - **Phase 1 ( boot chain ) VERIFIED 2026-06-07**: a signed FSBL boots from external flash and blinks LED1, via a repeatable build, sign, and flash pipeline. See `muller_motor_learnings.md` for the playbook.
 - **Phase 2 comms VERIFIED 2026-06-07**: N6 to host Ethernet over a direct cable ( static IP, ping about 1 ms, app level UDP echo on port 5005 ). See `ethernet_comms.md`.
 - **Phase 2 port plan and pin mapping done**: `phase2_port_plan.md`, `pin_mapping.md`. The split: time critical control on the N6, brain logic on the mini PC over isolated Ethernet.
-- **M0 verified, M1 built**: first control firmware on the N6 ( DWT timebase; one channel from a hardware timer with a loopback self test ). Source: `firmware\control_app\main.c`. Resume guide: `docs\RESUME.md`.
-- **Next**: finish M1 verification, then M2 ( five channels ), M3 ( Hall capture ), per the port plan. The mini PC ( the brain ) is the next host.
+- **M0 VERIFIED. M1 BUILT and FLASHED but BENCH VERIFICATION PENDING.** M2 is NOT started. First control firmware on the N6 ( DWT timebase; one channel from TIM1 with a TIM4 loopback self test ). Source: `firmware\control_app\main.c`. Authoritative milestone ledger and the resume banner: `docs\RESUME.md`.
+- **Current gate**: M1 must be bench verified ( jumper D3 to D14, scope D3 for 10 ms / 2 ms, LED1 1 Hz = pass ) BEFORE M2 begins. Do not skip ahead to M2.
+- **Then**: M2 ( five channels open loop ), M3 ( Hall capture ), M4 to M8 per the port plan.
+- **Parallel ( planning done, not built )**: touchscreen dashboard ( `docs\touchscreen_plan.md`, D0 to D6 ), mini PC brain BLE to UDP hub ( `docs\minipc_brain_plan.md`, B1 to B5 ), mini PC backend access taking over the App's Firebase + BigQuery push ( `docs\minipc_backend_creds.md` ), and nano power data flow ( `docs\nano_power_dataflow.md` ). The mini PC ( the brain ) is now the host; the session moved to it 2026-06-08.
 
 ## Primary references
 - UM3234 ( boot ROM on STM32N6 ), UM3300 ( STM32N6570-DK ), UM3239 ( getting started with STM32CubeN6 ), the STM32N657X0 datasheet, and the STM32N6 reference manual.
