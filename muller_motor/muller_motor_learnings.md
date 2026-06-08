@@ -252,3 +252,46 @@ verified on the board.
     under a millisecond every 50 ms; acceptable open loop, revisit with DMA2D ).
     The five on screen activity blocks ( green when a channel fired ) are an easy
     live readout of the control loop and confirmed all five channels firing.
+
+## M4 safety, M3 EXTI capture, and the brain link plan ( 2026-06-08 )
+
+35. **M4 safety interlocks are in `main_lcd.c` ( the firmware going forward ); the
+    pure `main.c` is frozen at M2.** Three interlocks, all link independent:
+    g_run_enable global STOP ( drive_outputs forces every output low and drops
+    schedules ); a stuck high watchdog ( an output may never stay high beyond one
+    rotor period or a 1 s fallback, else force low + latch a per channel fault );
+    and the REAL end of period pulse guard the M2 review deferred - on_rotor_edge
+    now clamps each pulse to end >= guard before the next edge ACCOUNTING FOR THE
+    PHASE OFFSET ( not just width ), in both frac and abs modes, skipping the pulse
+    if the phase leaves no room. Overlap protection is now a backstop, not the
+    mechanism. The dashboard shows RUN/STOP and a red LED per faulted channel.
+
+36. **M3 = real Hall capture via EXTI, behind DEMO_SYNTH_ROTOR ( 1 = synthetic
+    demo, no IRQs; 0 = LIVE ).** Five Hall pins map to distinct EXTI lines
+    ( PC1 line1 ch0, PH9 line9 ch1, PA5 line5 ch2, PA3 line3 ch3, PG2 line2 ch4 );
+    the rising callback timestamps with now_cyc() and feeds the SAME on_rotor_edge.
+    Concurrency ( ISR schedules, loop drives ): shared state volatile, the five
+    EXTI IRQs share one NVIC priority ( no mutual preemption ), and the output RMW
+    is in a brief PRIMASK critical section. Build verifies both modes; LIVE needs a
+    Hall signal source ( signal gen or rotor ) to verify on the bench.
+
+37. **Brain link architecture DECIDED: raw HAL_ETH + a minimal UDP/IP/ARP, NOT
+    NetXDuo.** The control firmware is a bare main loop ( + LTDC ) with no RTOS;
+    NetXDuo drags in ThreadX, which fights that. CubeN6 has no LwIP. So M5
+    ( emit telemetry ) and M6 ( parse commands ) on the N6 should use stm32n6xx_hal_eth
+    directly with a small UDP/IP/ARP/ICMP, RTOS free, polled from the control loop,
+    descriptors in non cacheable RAM ( gotcha 16 ). This is the next big firmware
+    effort and what connects the real board to the dashboard. ( Phase 2 proved the
+    link with a NetXDuo example; the INTEGRATED control firmware should not.)
+
+38. **The mini PC dashboard ( the brain UI ) is BUILT and emulator verified, in
+    `dashboard\` in the N6 repo.** Built fresh ( the legacy muller-motor-python-gui
+    is not on this machine ): Tkinter UI + UDP client + the binary MMCProtocol
+    codec ( mmc_protocol.py ) + a software N6 emulator ( n6_emulator.py, also the
+    executable reference for M5/M6 ) + selftest.py ( passes ). Python 3.12 via
+    winget; tkinter ships with it. **UDP link contract NOW DEFINED** ( resolved the
+    open decision ): datagram = [ type ][ payload ], CMD 0x01 / TELEM 0x02 ( the
+    112 byte v1 struct ) / INFO 0x03 / DEBUG 0x04, fire and forget; plus a link
+    extension CMD_SET_RUN 0x10 ( global STOP/RUN -> M4 g_run_enable ) since the App
+    is dropped and the N6<->brain contract is ours. The N6 M5/M6 must implement
+    this exact framing. Run: `python n6_emulator.py` then `python dashboard.py --ip 127.0.0.1`.
