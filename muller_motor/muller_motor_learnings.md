@@ -146,7 +146,55 @@ protocol. Three findings that correct working assumptions:
     everything else is OS neutral, and the firmware toolchain already runs on
     Windows. Revisit Linux only if it becomes a 24/7 unattended appliance.
 
-## Verified facts ( this PC, June 2026 )
+## Verified facts ( old dev PC, June 2026 )
 - STLINK V3EC: VID 0483 PID 3754, COM19, SN 001F00453234511233353533, FW V3J15M6. Board Device ID 0x486, Rev B, 3.29 V.
 - STM32CubeProgrammer 2.22.0; STM32CubeIDE 2.1.1 ( C:\ST\STM32CubeIDE_2.1.1 ); STM32 signing tool 2.22.0.
 - External loader: MX66UW1G45G_STM32N6570-DK.stldr ( in the CubeProgrammer bin\ExternalLoader folder ).
+
+## Move to the lab mini PC ( the brain box ) and M2 authored ( 2026-06-08 )
+
+The mini PC ( the real brain we were waiting for ) arrived; firmware dev moved to
+it. State found and advanced this session:
+
+27. **The lab mini PC is a FRESH box: the board is here but the ST toolchain is
+    NOT.** `tools\check_toolchain.ps1` on the mini PC reports PRESENT: git, the
+    control source, the cloned vendor CubeN6 tree, and the board ( STLINK V3EC
+    detected on USB ). MISSING: STM32CubeProgrammer, STM32_SigningTool_CLI, the
+    external loader `.stldr`, and STM32CubeIDE. A machine wide search found no ST
+    installers anywhere. So on this box NOTHING can be built, signed, or flashed
+    until a human installs CubeProgrammer + CubeIDE from st.com in a browser ( the
+    download is Akamai gated, gotcha 7 ). That install is the single gate on all
+    firmware progress on the mini PC. `tools\get_cuben6.bat` ran clean here
+    ( GitHub is not gated ), so the vendor HAL is already on disk.
+
+28. **M2 ( five channel open loop sequencer ) is AUTHORED, ahead of that install.**
+    `firmware\control_app\main.c` now ports the proven Muller scheduler ( legacy
+    onHallEdge + driveOutputs ): per rotor edge, schedule a phase shifted one shot
+    pulse at now + wrap01( phase_base + trim[ch] ) * T, width pulse_frac * T or an
+    abs ms with a ~20 us guard band, plus overlap protection. A SYNTHETIC rotor
+    ( five edges per period, channel k staggered by k * T/5, 600 RPM / 12.5 ms
+    corner ) drives it so the sequencing, phase, trim, guard band, and overlap are
+    exercised open loop with no rotor. Outputs are plain push pull GPIOs off the
+    DWT timebase ( OUT1 PE9, OUT2 PA9, OUT3 PE13, OUT4 PE14, OUT5 PB10 ). LED1
+    self test: 1 Hz = all enabled channels firing one pulse per edge, 5 Hz = a
+    channel starved. M3 swaps the synthetic edges for real Hall captures with no
+    scheduler change. M2 supersedes the M1 single channel demo ( M1 image still on
+    the board, bench verify still pending ). Committed to origin main.
+
+29. **Design choice: M2 uses a SOFTWARE scheduler, not hardware one pulse.** The
+    phase2 plan eyed hardware OPM for jitter, but both legacy controllers used a
+    software micros() scheduler, so M2 ports that logic verbatim ( de risked, and
+    it is the exact path M3 reuses ). Hardware OPM is a later separable refinement
+    that changes only the final edge emission. To keep the minimal GPIO_IOToggle
+    build linking unchanged, M2 avoids libm: no floorf ( wrap01 uses bounded adds )
+    and no roundf ( integer +0.5f casts ). Register and AF macro names were
+    verified against the cloned HAL headers since the box cannot compile yet.
+
+30. **Memory junction is NOT set up on the mini PC.** The live memory folder
+    `~\.claude\projects\C--Users-Muller-Motor-Control-Documents-GitHub\memory` is
+    an empty real dir here, not a junction into Claude_KB. The canonical KB
+    ( Claude_KB\muller_motor ) stays the source of truth; future sessions should
+    re establish the junction per the Claude_KB README if they want live memory to
+    write straight into the repo on this box. ( The session working dir is the
+    GitHub parent, so decide whether one junction serves the whole folder or per
+    repo. )
