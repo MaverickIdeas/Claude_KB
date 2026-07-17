@@ -1,6 +1,6 @@
 ---
 name: muller-motor-project-overview
-description: "Muller motor controller on STM32N6570-DK — hardware, boot model, architecture split, toolchain, and Phase 1 status as of June 2026"
+description: "Muller motor controller on STM32N6570-DK — hardware, boot model, architecture split, toolchain, and milestone status as of July 2026"
 metadata:
   node_type: memory
   type: project
@@ -42,9 +42,10 @@ metadata:
 - **Phase 1 ( boot chain ) VERIFIED 2026-06-07**: a signed FSBL boots from external flash and blinks LED1, via a repeatable build, sign, and flash pipeline. See `muller_motor_learnings.md` for the playbook.
 - **Phase 2 comms VERIFIED 2026-06-07**: N6 to host Ethernet over a direct cable ( static IP, ping about 1 ms, app level UDP echo on port 5005 ). See `ethernet_comms.md`.
 - **Phase 2 port plan and pin mapping done**: `phase2_port_plan.md`, `pin_mapping.md`. The split: time critical control on the N6, brain logic on the mini PC over isolated Ethernet.
-- **M0 VERIFIED. M1 BUILT and FLASHED but BENCH VERIFICATION PENDING.** M2 is NOT started. First control firmware on the N6 ( DWT timebase; one channel from TIM1 with a TIM4 loopback self test ). Source: `firmware\control_app\main.c`. Authoritative milestone ledger and the resume banner: `docs\RESUME.md`.
-- **Current gate**: M1 must be bench verified ( jumper D3 to D14, scope D3 for 10 ms / 2 ms, LED1 1 Hz = pass ) BEFORE M2 begins. Do not skip ahead to M2.
-- **Then**: M2 ( five channels open loop ), M3 ( Hall capture ), M4 to M8 per the port plan.
+- **Milestones as of 2026-07-01**: the shipping firmware is `firmware\control_app\main_lcd.c` ( M2 scheduler + M3 EXTI Hall capture + M4 safety + LTDC panel ), now flashed as the LIVE real Hall image ( DEMO_SYNTH_ROTOR=0 via `tools\build_lcd.bat live` ). **M5/M6 ( UDP telemetry out, commands in ) VERIFIED ON HARDWARE 2026-06-30**: ~50 Hz 112 byte telemetry decodes on the brain and the full command round trip is confirmed by telemetry readback. **M9 NOR persistence IMPLEMENTED and initialized on hardware** ( 68 byte cfg_record in two alternating 4 KB subsectors; save plus power cycle restore verification still PENDING ). Trim is now ABSOLUTE ROTOR DEGREES 0..360 on both ends ( firmware applies deg mod 45 ). Authoritative milestone ledger and the resume banner: `docs\RESUME.md`.
+- **Brain web console OPERATIONAL**: `dashboard\web_console.py` ( aiohttp ) on 127.0.0.1:8500, ~15 Hz WebSocket telemetry including the cfg ack bits, commands as JSON mapped to the mmc_protocol encoders, confirmed by telemetry readback. Do not run dashboard.py at the same time ( both bind UDP 5005 ).
+- **MOTOR RAN under its own power, proper direction, 2026-07-14**: on DERIVED trims ( placement instrument + coil geometry ) the machine SUSTAINED ~610 rpm on CH1 alone with 155 us jitter. M3/M4 are now bench proven on the real rotor. This session also: portrait panel ( learning 60 ), the firing induced Hall double count root cause ( 61, drive side flyback coupling, NOT sensor side ), the 600 MHz / dead TIM6 output timer fix ( 62 ), noise hardening + real fault latch ( 63 ), enabled channel median RPM ( 64 ), a provable firmware build id in v4 telemetry ( 65 ), the detached brain stack with activity log / firehose / autotune ( 66 ), and Rigol MSO5074 input+output power over isolated Ethernet with a persisted clamp tare ( 68, 69 ). See learnings 60 to 69 and `docs\audit_io_signals.md`, `docs\self_heal_design.md`, `docs\ch1_run_analysis_20260714.md`.
+- **Open items**: the flyback coupling is a HARDWARE fix owed ( drive side snubber + sensor wire routing; the firmware only tolerates it ). Self healing / single master Hall mode is DESIGNED and adversarially reviewed but NOT built ( needs CH5 hardware fixed + a NOR offset calibration first; six blockers in `docs\self_heal_design.md` ). The M7 closed loop RPM PID is unbuilt ( the RPM target slider is inert; pulse width is the throttle ). Output power tare + a trustworthy COP were pending a clean bus energized rotor stopped tare at session end.
 - **PIVOT 2026-06-08, the App is dropped; the mini PC is the HEAD.** The mini PC
   is now the primary UI and commander of the N6 over UDP, not a BLE relay for a
   phone. Authoritative plan: `docs\minipc_dashboard_plan.md` ( milestones U0 to
@@ -56,7 +57,7 @@ metadata:
   is SUPERSEDED. The N6 touchscreen ( `docs\touchscreen_plan.md` ) stays as a thin
   link independent safety mirror + touch STOP ( D0 to D5 ), complementary to the
   mini PC dashboard.
-- **Backend reality ( corrected 2026-06-08 )**: the production App does NOT push to any cloud backend; it is a pure BLE controller on master. The mini PC will be the FIRST server side writer to Firebase + BigQuery and needs its OWN Google Cloud service account key ( does not exist yet, must be minted in the motor's `muller-motor-controller` project; NOT `optix-2ddbc` ). The nano power boards ( input and output ) are BLE peripherals that NOTIFY a 140 byte v2 telemetry packet at ~5 Hz and today pair with the App; the mini PC must add a BLE central role to ingest them. See the two docs above and `muller_motor_learnings.md`.
+- **Backend reality ( corrected 2026-06-08, still true 2026-07-01 )**: the production App does NOT push to any cloud backend; it is a pure BLE controller on master. The mini PC will be the FIRST server side writer to Firebase + BigQuery and needs its OWN Google Cloud service account key ( does not exist yet, must be minted in the motor's `muller-motor-controller` project; NOT `optix-2ddbc` ). Cloud auth remains UNPROVISIONED on this PC. The nano power boards ( input and output ) are BLE peripherals that NOTIFY a 140 byte v2 telemetry packet at ~5 Hz and today pair with the App; the mini PC must add a BLE central role to ingest them. See the two docs above and `muller_motor_learnings.md`.
 
 ## Primary references
 - UM3234 ( boot ROM on STM32N6 ), UM3300 ( STM32N6570-DK ), UM3239 ( getting started with STM32CubeN6 ), the STM32N657X0 datasheet, and the STM32N6 reference manual.
