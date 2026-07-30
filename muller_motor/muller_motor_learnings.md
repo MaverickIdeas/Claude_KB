@@ -582,3 +582,381 @@ verified on the board.
     ( CH3 read 21.5 V unclipped vs 25 V clipped: the clip did not change the
     circuit, it gave the measurement a reference ). A622 needs its own battery
     powered ON ( a dead flat reading that ignores the balance knob = it is off ).
+
+70. **The drive supply is NOT a kill switch; nothing enforced the speed
+    ceiling ( 2026 07 17, two runaways ).** The DK runs on its own power: a
+    bus power cycle leaves the controller ARMED, and it resumes firing the
+    instant the bus returns ( two channels at 8 ms drove the rotor to a real
+    ~878 rpm this way; the operator's power cycle did nothing ). Worse, the
+    NOR config had been saved with channels enabled, so any BOARD reboot
+    self armed and self started the motor ( seen when a programmer hard reset
+    rebooted it straight into a climb ). Fixes: config re saved DISARMED
+    ( boots now come up safe ); the real stop is the software disable_all
+    burst ( run off, all channels off, target 0, auto off ); and firmware
+    gained the M11 overspeed guard, a 10 Hz main loop check that latches a
+    global stop above 650 rpm and blocks re arm until the rotor is genuinely
+    slow ( below 100 ), surfaced as bit 7 of the telemetry _reserved byte.
+    Five channels at 3 ms is comparable total drive to 2x8 ms: it climbed to
+    a real ~846 rpm before the brain side stop landed. Nothing limits speed
+    on this machine except drag and a guard; treat every arm as a launch.
+
+71. **At five channel fire density, HALF the telemetry rpm samples are
+    flyback phantoms ( 2026 07 17 ).** In the first full five channel run
+    ( 10.5 min, all channels firing, phases 0 / 5.8 / 12.8 / 16.7 / 16.8 deg ),
+    426 of 833 samples were the ~5.1 ms echo band painting 1300+ rpm. The
+    echoes are SYNCHRONIZED across the five hall lines ( the firing itself is
+    the source ), so a cross channel coherence test PASSES on phantoms:
+    per channel periods of 5.1 ms on every line looked perfectly consistent
+    at a fake 1437 rpm. The only reliable discriminator brain side is a
+    physics continuity track ( the 1.14 kg m2 rotor moves at most ~60 rpm per
+    second; anything leaping away from the track is an echo ). A naive brain
+    side overspeed guard tripped FALSE on two consecutive phantom frames
+    ( "667 rpm" while the rotor did ~180 ) and killed a good run: any
+    consumer of avg_rpm on the 5 ms gate firmware must physics filter first.
+    The source fix is the 8 ms edge gate ( EDGE_MIN_GAP_MS 5 to 8 ), built
+    and signed with the M11 guard, NOT YET FLASHED as of this writing.
+
+72. **Failed N6 flash diagnosis from the erase failure signature
+    ( 2026 07 17 ).** STM32_Programmer_CLI with the MX66UW1G45G loader failing
+    "failed to erase memory" on sectors [0 1] has DIFFERENT causes with one
+    error text. Discriminate with three cheap probes: ( a ) does the app boot
+    after a released hard reset ( telemetry returns = Flash boot pins );
+    ( b ) can the loader RAW READ 0x70000000 ( read works = loader owns the
+    XSPI = real DEV boot, so an erase failure would be protection );
+    ( c ) does the board stay silent forever ( boot ROM parked ). App never
+    boots PLUS loader cannot even read PLUS permanent silence = the boot ROM
+    is parked in SERIAL boot: BOOT0 got flipped high instead of BOOT1. DEV
+    boot needs BOOT1 = H AND BOOT0 = L, then a power cycle; the wrong single
+    switch produces a state that mimics both other modes. Also: a power
+    cycle looks identical to a DEV boot flip from the network side for the
+    first ~20 s, so any auto flash trigger needs a silence threshold longer
+    than a full boot ( 25 s ) plus reconfirmation, and must NOT hammer retry
+    loops against a parked board ( one early watcher fired 240 futile hard
+    resets in an hour; harmless but wrong ).
+
+73. **M12 physics tracked rpm ( flashed 2026 07 20, fw 0x4ac05b4a ) ended the
+    multi channel false trips.** Arming a second channel painted 8.3 ms
+    phantom periods ( = 752 rpm ) on ALL hall lines for ~80 ms, sliding past
+    the 8 ms edge gate and false tripping the M11 overspeed guard within
+    0.1 s, disarming everything ( the "keeps turning off" bench mystery ).
+    Fix: the official g_rpm follows the raw EMA estimate only within a slew
+    budget the 1.14 kg m2 rotor can achieve ( +150 / -500 rpm per second,
+    20 rpm noise floor ), and a PERSISTENT disagreement ( 700 ms ) re
+    converges the track so it can never latch away from reality ( the
+    historical two sided gate trap ). The M11 guard additionally needs 3
+    consecutive 100 ms checks over 650. Proven same day: single channel rpm
+    sd 0.95 over 25 s while 145 flyback echoes per second were rejected, and
+    a real 651.9 rpm brush of the threshold did NOT trip ( under 300 ms ).
+    IMPORTANT residue: idle hall lines still read 1.3..2x edge counts from
+    firing crosstalk; M12 cleans the READOUT, but each channel still
+    schedules pulses from its own possibly contaminated line ( band trust
+    gate is the only defense ). Snubber + routing hardware fix still owed.
+
+74. **Input current is the fast truth channel for fire phase ( 2026 07 20 ).**
+    A coil firing in the wrong half cycle converts to heat not torque: CH2
+    armed at the geometry seed pulled 21.9 A ( baseline 7.8 A, CH1 solo
+    ~160 W ) with zero rpm gain, caught by the Rigol clamp within 5 s, ~10x
+    faster than the rpm trend reveals it. Rules: every channel add/tune test
+    watches i_in with hard aborts ( used 18 A / 450 W ); moving trim THROUGH
+    a bad phase zone while running spikes current ( 36 A transients logged )
+    so make large trim moves fast or disarmed; and pulse is in FRACTION mode
+    ( pulse_frac 0.19 = 19 percent duty, self stabilizing ) unless
+    use_abs_pulse says otherwise, so the pulse_ms field can be a red herring.
+
+75. **The a priori geometry trim model FAILED per channel; solo optima are
+    empirical ( 2026 07 20 ).** Seed model trim = anchor + coil_off -
+    sensor_phase ( mod 45 ) predicted CH2 = 13.7: catastrophic ( 21.9 A, no
+    torque ). The operator's hand sweep ( mined from the activity log as a
+    free response curve ) found CH2 solo optimum ~41.5, where CH2 alone hit
+    651 rpm at ~21 A, FAR stronger than CH1 ( 33.5, ~280 rpm, 7.8 A ) - per
+    channel winding polarity and effective sensor sign make half cycle ( 22.5 )
+    and sign errors unpredictable a priori. The relation fitting the one
+    measured pair ( delta = coil_off + sensor_phase + 22.5, mod 45 ) predicts
+    CH3 ~30.6 vs the naive model's ~9.4: the next channel test discriminates.
+    Procedure that works: arm the candidate onto a running baseline with
+    current watch; wrong half announces itself in amps within seconds; then
+    fine tune by rpm. "Sync" between channels is by construction ( each fires
+    a fixed offset after ITS OWN hall edge; the rotor links them ): two
+    channel operation = both at their solo optima, then joint fine tune for
+    interaction effects ( supply sag, magnetic coupling, scheduling
+    crosstalk ).
+
+76. **M14 open loop self start built ( 2026 07 21, flashed, NOT yet run ).**
+    At rest there are no hall edges so hall commutation does nothing; self
+    start must be FORCED ( timed, no feedback ) commutation, then hand off to
+    the hall path once the rotor turns. Design ( self-start-design workflow ):
+    the machine is a 5 phase 8 pole pair PM stepper with ATTRACT ONLY
+    ( energize or off, unipolar ) coils. The firing ORDER is pure vernier
+    geometry: coils at 0/72/144/216/288 mech reduce mod the 45 deg electrical
+    cycle to phases 0/9/18/27/36 mech ( CH1/CH3/CH5/CH2/CH4 ), so the SKIP ONE
+    order CH1,CH3,CH5,CH2,CH4 ( index +2 mod 5 ) advances the attraction point
+    a clean +9 mech deg per step ( 40 steps/rev ) - the ONLY order that is
+    monotonic. Spatial order 1,2,3,4,5 gives 0/27/9/36/18 = a back and forth
+    zig zag that cogs/stalls. Reverse order CH1,CH4,CH2,CH5,CH3 drives the
+    other way. Sequence: align coil 0 for 800 ms ( settle the heavy rotor,
+    expect a +/- 4.5 deg jerk in an unknown direction ), then ramp 3 to 15 rpm
+    at constant 6 rpm/s ( dwell = 1500/rpm, floored 100 ms ), one coil on at a
+    time full dwell ( the energized coil is the only damping this undamped
+    rotor gets ), hand off to on_rotor_edge once rpm is 9..25 for 300 ms with
+    real edges on 3+ channels. Implementation: opcode 0x11 ( a0 start/cancel,
+    a1 reverse ), a main loop ss_task state machine actuating through the
+    EXISTING g_pulse_* scheduler so the M4 watchdog, M11 overspeed guard and
+    g_run_enable stop all still gate it; 4 new telemetry bytes
+    ( ss_state/ss_step/ss_attempt/ss_fail ) carved from the 8 spare tail bytes,
+    struct still 200, mmc_protocol tail "3I" -> "I4BI", python round trip
+    verified. Dashboard SELF START button + CW/CCW toggle + live state.
+    CANNOT run away: rotor is dragged by an attraction point moved at <=15 rpm,
+    6 s time box, every abort uses the all outputs low path. UNVALIDATED: the
+    CW vs CCW sign ( default {0,2,4,1,3} = geometric CW prediction, matches the
+    confirmed running direction, but per coil winding polarity could flip it -
+    the phase_trim cluster split CH1/3/5 ~42 vs CH2/4 ~18.5 is most likely hall
+    polarity not winding, so ship default and prove it ), and the align/ramp
+    constants. TEST ORDER: bus OFF dry run ( watch output_active_bits step
+    CH1,CH3,CH5,CH2,CH4 with zero motion, wd_trips flat, one coil at a time )
+    then ATTENDED powered test. Logger: scratchpad selfstart_log.py narrates
+    every state + step. CONTINGENCY if step 0 shows a real winding flip: spatial
+    order, 4.5 deg microstep, dwell 750/rpm ( one constant SS_STEP_MECH_DEG ).
+
+77. **The hall crosstalk is the wall for clean multi channel; M15 single
+    reference commutation is the software bypass ( built 2026 07 21, NOT yet
+    hardware tested ).** Self start + CH1+CH2 works and climbs to 300 rpm, but
+    adding CH3/4/5 fails: armed cold at 300 rpm they fire ZERO pulses
+    ( band_rejects 16k ) because firing crosstalk makes their own hall period
+    readings jump so the two consecutive agreement trust gate never locks.
+    Lowering duty to 0.12 for cleaner lines instead STARVED torque ( stalled
+    at ~10 rpm ); 0.19 is needed to climb. So the add window ( enough torque
+    AND low enough rpm for a clean line ) is narrow and the handoff is marginal
+    ( one attempt stalled at 26 rpm ). You cannot software tune past the
+    crosstalk in the per channel scheme - it is the hardware snubber issue owed
+    since 07-14. M15 sidesteps it: five coils on ONE rigid rotor, so CH1
+    ( cleanest, locks first ) determines position; in ref mode every coil fires
+    off CH1's edge + its sensor phase from the CLEAN walk in map ( CH_PHASE_DEG
+    0/5.26/10.56/15.02/15.02 ) + its trim, never reading CH2..5 own lines.
+    Provably equivalent for validated channels ( own edge = CH1 edge +
+    CH_PHASE ), so CH1=34.5 CH2=41.5 carry over. Opcode 0x12, telemetry flag
+    bit 3, dashboard 5CH REF, ss_handoff arms all 5 in ref mode. Commit
+    5afaf79. Risk: concentrates on CH1 ( one bad CH1 period misfires all 5 ) so
+    the CH1 trust gate must hold. Test owed attended: self start, enable 5CH
+    REF, arm CH3/4/5, current watch for wrong half trims to flip.
+
+78. **M15 single reference does NOT escape the crosstalk; and the supply
+    brownouts under multi channel load ( 2026 07 22, on hardware ).** Tested on
+    fw 0xa36577ab. Confirmed GOOD: self start + closed loop RPM hold holds a
+    commanded speed ( 117 rpm sustained on CH1+CH2, CH1 fired 7.5/s ), and the
+    M15 ref loop DOES fire non reference channels ( CH2 logged 2281 pulses
+    driven off CH1; CH3 fired ~3.5/s off CH1 ). BUT arming CH3 in ref mode: (1)
+    CH3's flyback crosstalk CORRUPTS CH1's OWN period reading - CH1_per swung
+    10..336 ms frame to frame ( implied rpm 22..735 ) while the real rotor
+    decayed 93->22. So the M15 premise "CH1 is clean" only holds when CH1 is
+    the SOLE firing channel; once another coil fires, CH1 is contaminated too,
+    and the phantom rpm ( a "566" reading ) is CH1 corruption, not a real climb.
+    (2) CH3 arming crashed the bus to 2.19 V ( hard brownout ) - the supply
+    surges under multi channel current and sags ( operator: it recovers, only a
+    FLAT ~0 V rail sustained is a true fail state to halt on ). Net: clean
+    multi channel needs the HARDWARE fixes ( drive snubber + sensor lead routing
+    for crosstalk; stiffer supply for the surge ), not more firmware. Self start
+    remains marginal ~50/50 ( position dependent ); retry until it climbs.
+
+79. **NEXT FIRMWARE: make all tuning constants brain settable ( operator
+    request 2026 07 22 ).** Every #define we iterate on ( phase_trim already is,
+    but also SS ramp params, EDGE_MIN_GAP_MS, RPM_OVERSPEED_CUT, CH_PHASE_DEG,
+    PULSE limits, PERIOD_BAND_SHIFT, handoff mask/speeds ) should be a runtime
+    value set over the brain link ( new opcodes + a params block, persisted to
+    NOR like trims ) so tuning does not require a reflash + DEV boot switch
+    dance each time. This is the single biggest dev velocity win: the whole
+    session's bottleneck was rebuild/flash cycles for one constant changes.
+
+80. **M16 constants-to-brain IMPLEMENTED ( 2026 07 22 ), reviewed, compiles
+    clean, awaiting one flash.** Delivered the learning-79 request for the
+    highest-value knobs ( 19 params: SS align/v0/v1/accel/dwell min-max-K/handoff
+    arm-hold-lo-hi/max_attempt, RPM_OVERSPEED_CUT/CLR, RPM_TRK slew_up/dn/noise/
+    persist, RPM_EMA_ALPHA ). Design that worked well and is worth reusing:
+    (a) an X-macro `M16_PARAM_LIST(X)` is the SINGLE SOURCE - it generates the
+    enum P_<name>, the live `g_param[]`, `g_param_def/min/max[]` all from one
+    list, so adding a knob is one line. (b) Each old `#define NAME value` was
+    renamed `NAME_DEF` and NAME REDEFINED as an accessor macro
+    `((uint32_t)g_param[P_NAME])` or `(g_param[P_NAME])` - so ZERO control-logic
+    use sites changed ( the compiler proves coverage: any missed const-context
+    use fails to build, none did ). ms/count params cast to uint32_t to match
+    their original literal type; rate/rpm/alpha stay float. (c) CMD 0x13
+    SET_PARAM ( id u8 + f32 ) clamps to per-param [min,max] on BOTH ends; 0x14
+    RESET_PARAMS. (d) Readback reuses the telemetry `_rsv4` tail ( byte0 last id,
+    byte1 P_COUNT capability probe, bytes2-3 write seq ) so NO 200-byte frame
+    change - the cloud forwarder is untouched. (e) DELIBERATELY NOT persisted to
+    NOR ( learning 79 speculated persisting; the safer call is boot-to-defaults +
+    brain re-pushes on connect, so a bad value can never survive a power cycle and
+    strand the self start ). mmc_protocol.py `PARAMS[]` MUST mirror the C list
+    order exactly - the index IS the wire id; append only, never renumber.
+    LESSON ( bit me during the fix ): a multi-line `/* */` comment INSIDE a
+    backslash-continued macro breaks line splicing unless EVERY line ends with
+    `\` - put explanatory comments OUTSIDE the macro body. SAFETY LESSON from the
+    5-lens review: making a guard threshold live is only safe if the bounds
+    can't defeat the guard - a low RPM_TRK_SLEW_UP would let the tracker classify
+    a real overspeed as a phantom and HOLD g_rpm low, blinding the M11 guard
+    ( it reads g_rpm, not raw ); floored slew_up at its 150 default ( raise only ),
+    capped persist, held overspeed cut max ( 800 ) below the ~937 rpm honesty
+    ceiling, and clamped the guard release so CLR>=CUT can't release above the
+    trip point. Per-param min/max cannot express cross-param invariants
+    ( dwell_min<max, CLR<CUT, handoff ordering ) - left the low/self-limiting
+    ones to the brain, hard-coded the safety-critical one in the guard.
+
+81. **M17 closed loop hall commutation for the self start ramp ( 2026 07 22 ):
+    the rocking/CCW starts were the BLIND TIMER, and the fix is letting the
+    rotor clock its own commutation.** Operator physics that unlocked it: the
+    rotor rests with a magnet cogged in the CH1 coil ( known start position ),
+    and this is a PULSE motor - coils must kick and release, never hold ( a
+    hold brakes the moment the magnet passes; ss_kick_ms >= dwell reproduces
+    the old hold ramp exactly, so the old behavior lives inside the tunable
+    space ). M17: the ramp advances CH1,3,5,2,4 when a REAL hall edge arrives
+    ( rotor reached the next position -> every kick lands in phase ), timer
+    only as dead slow bootstrap. Result: first ever first attempt clean CW
+    climb, no toggling ( operator camera ). THE TRAPS ( adversarial review, 17
+    confirmed, one observed live as a rocking start ): (1) the machine's own
+    kick makes flyback edges on ALL hall lines -> a naive edge clock SELF
+    CLOCKS and machine guns the sequence; fix = quiet window ( kick + settle,
+    latched at fire time, judged by the EDGE's timestamp not the poll time,
+    clamped below the dwell, settle floor 10 ms > the 5.1 ms echo ). (2) a
+    TIMED advance presumes an edge that has not arrived; when the rotor's late
+    edge lands it must be ABSORBED, not advanced again - the double advance
+    builds a permanent phase lead and kicks land behind the magnet = the
+    rocking seed. (3) raw edge sums are echo contaminated: the stall and
+    handoff gates must count only CLEAN edges ( accepted outside the window )
+    or they never trip / trip wrong. (4) integrate commanded speed over REAL
+    elapsed time, not the assumed dwell. Residual known gap: the edge clock is
+    direction blind ( a back swing edge also advances ); the absorb fix removes
+    the mis phase seed that starts the rocking, and full per channel expected
+    edge gating waits on the CH3/4/5 sensor hardware fix.
+
+82. **Power measurement is now THREE scopes, and the two power ones are read
+    only by the console ( 2026 07 29/30 ).** Bench switch: N6 .10, brain .20,
+    INPUT scope 192.168.10.30, OUTPUT scope .31, FEEDBACK scope .32. The two
+    power instruments are Rigol DHO924S ( 12 bit, no HighRes mode at all ); the
+    feedback one is the recovered MSO5074 ( 8 bit, HighRes present ). INPUT:
+    CH1 bus volts via a 10x probe, CH2 A622 clamp, MATH1 = CH1 x CH2. OUTPUT is
+    DIFFERENTIAL because a single ended probe there was measuring nothing real:
+    CH1 = output positive, CH2 = output ground, CH3 = A622, MATH1 = CH1 - CH2,
+    MATH2 = MATH1 x CH3, nested math verified supported. The proof the
+    differential was necessary: single ended, the output node read 23.42 V and
+    the tiles showed 42.8 W with the machine IDLE, pure common mode against
+    chassis; differentially the same quiet bench reads 0.16 V and 0.13 W. Both
+    A622 clamps are on 10 mV/A => av_scale 100. A 100 mV/A experiment was tried
+    and REVERTED: it bought no accuracy at all, because the low current floor is
+    clamp offset drift plus stray field pickup, both referred to the clamp input
+    and therefore identical on either range, and it added a 10 A ceiling. The
+    two voltage probes on the output scope must keep the SAME attenuation and
+    V/div or the mismatch becomes common mode error, and their ground clips must
+    share a reference. All three scopes are mains earthed, so probe grounds are
+    commoned through earth no matter what the Ethernet isolation does.
+
+83. **The DHO924S on firmware 00.01.03 is permanently ONE REPLY BEHIND on the
+    raw SCPI socket; 00.01.04 is not ( 2026 07 27 ).** Every answer belongs to
+    the PREVIOUS question, so watts arrive as volts and volts as amps: all
+    plausible, all wrong. It produced a dashboard reading 1.64 V and 164 A while
+    the scope's own screen said 23 V. NOTHING clears it: not draining, not *CLS,
+    not one long lived connection, not draining a freshly opened socket, not
+    :LAN:APPL. **The cure is to ask every question TWICE and keep the second
+    answer** ( harmless on a healthy scope since both replies match ), which
+    rigol_ingest._q now does for every instrument. THE DIAGNOSTIC TRAP: you
+    cannot detect this by probing *IDN? repeatedly - each probe reads the
+    previous probe's identical answer and reports "aligned" while still shifted.
+    Only ALTERNATING DISSIMILAR queries expose it. Any manual spot check must
+    double ask or it is reading one behind. Upgrading that scope to 00.01.04
+    should remove the need entirely.
+
+84. **NEVER query a scope the console is already polling ( 2026 07 27/29 ).**
+    The instrument takes one client; a second one interleaves and the replies
+    cross, which is indistinguishable from a real fault and wasted a great deal
+    of time chasing "config drift" that was purely self inflicted contention.
+    Symptoms seen: a power factor of 10.68, VMIN greater than VMAX, VRMS below
+    VAVG, a negative RMS. Rules that hold: the console polls .30 and .31 only,
+    so the FEEDBACK scope .32 is free for ad hoc work; for the power scopes
+    either trust the dashboard's own numbers or pause the console first; and any
+    reading that violates physics ( pf > 1, RMS < |mean|, min > max ) is a
+    transport artefact, not data.
+
+85. **Read the DHO800/DHO900 programming guide rather than probing blind; three
+    settled facts ( 2026 07 27 ).** Extract it with pypdf, since WebFetch only
+    sees the cover image. (1) There is **NO :POWer: subsystem at all** - the
+    DHO924S has no power analysis feature, and an earlier reading of
+    ":POWer:TYPE? -> QUAL" was a shifted reply, not evidence. (2)
+    **:MEASure:CLEar takes NO parameter** - every ":MEASure:CLEar ALL" sent was
+    a syntax error that cleared nothing, which is why the item table kept
+    answering 9.9E37. (3) The item table holds **at most 10 items**; once full
+    every further query returns the 9.9E37 "no valid statistic" sentinel even
+    with perfect traces, which is easy to misread as clipping or a dead
+    instrument. Genuine off window clipping also returns the sentinel, so clear
+    the table BEFORE blaming the window. Useful and confirmed present: ACRMs
+    ( RMS with the DC component removed - would replace the software clamp
+    offset correction outright ), MARea ( waveform area in V*s: on a V x V
+    power math that is JOULES, which the dashboard has no equivalent of ),
+    measurement STATISTICS ( :MEASure:STATistic:COUNt 2..100000, :DISPlay,
+    :RESet, :ITEM? with MAXimum/MINimum/CURRent/AVERages/DEViation/CNT - the
+    DEViation term would give the dashboard a real uncertainty band ), and
+    :SYSTem:PSTatus OPEN ( scope boots on mains without pressing Power ).
+
+86. **Scope config persistence: PON LATest works, EXCEPT memory depth on the
+    DHO924S ( measured across a real power cycle, 2026 07 30 ).** Snapshotting
+    41 settings per scope before and after: the MSO5074 restored 41/41, and both
+    DHO924S restored everything EXCEPT :ACQuire:MDEPth, which silently reverts
+    10M -> 1M. That is a tenfold sample rate cut ( 62.5 -> 6.25 MSa/s ) while
+    the 20 MHz bandwidth limit keeps admitting content, i.e. a 3.1 MHz Nyquist
+    against 20 MHz of signal - precisely the aliasing that corrupts a power
+    average. So **memory depth must be re-applied after every power cycle** and
+    can never be assumed. Config is also wiped by the front panel AUTO button
+    ( Autoset resets scales to 50 mV/div, both maths to CH1+CH1, probe factors
+    to 1x, depth to 10 kpts ); dashboard/scope_setup.py is the one command
+    recovery and now also sets the 20 MHz bandwidth limits and the depth,
+    neither of which it originally did.
+
+87. **COP is trivially easy to fake, and every trap was hit live ( 2026 07 29 ).**
+    Verified steady baseline: **COP 0.424 +/- 0.027** over 10.9 min and 327
+    samples at ~620 rpm, from 422.8 +/- 21.4 W in and 179.4 +/- 6.7 W out.
+    Reaching 1.0 needs output to go 179 -> 423 W, a factor of 2.36, which no
+    measurement refinement supplies. THE TRAPS: (1) during COAST DOWN input
+    falls toward the clamp residual while the flywheel still drives the output,
+    so COP climbs through 1.0 on its own - observed **1.054 at 26 W while rpm
+    fell 522 -> 481**, which is a decaying rotor, not over unity. (2) During
+    ACCELERATION the bias reverses: input feeds kinetic energy the output clamp
+    never sees, so COP is UNDERSTATED and a spin up reading is a floor. (3)
+    Averaging the per sample ratio is biased high; compute COP from the RATIO OF
+    THE MEANS. (4) Both powers must be well above the noise floor - the input
+    clamp's own noise is ~0.3 A which is ~7 W at 24 V. A COP figure means
+    something only when drive is enabled, rpm is flat, both powers are above
+    ~50 W, and no fault is latched. The clean fix for the flywheel bias is
+    already on the wire: telemetry carries rotor_energy_j, so
+    COP = ( output_w + d(rotor_energy_j)/dt ) / input_w removes the bias in
+    BOTH directions and makes transient samples usable instead of discardable.
+    Not yet implemented. The dashboard gates COP on avg_rpm > 5 but NOT on
+    run_enabled, so every coast down still manufactures a false high.
+
+88. **The M4 stuck high latch is REAL, transient, roams channels, and costs
+    130-150 W ( quantified 2026 07 29 ).** At a constant ~620 rpm: latched =
+    528-556 W and COP 0.378-0.385, clear = 388-425 W and COP 0.41-0.47, and it
+    flips within one 3 s sample of the latch setting or releasing. So it is NOT
+    a mere detector artefact - a gate really is conducting - but it is transient
+    and roams ( seen on CH1, CH3, CH4 singly and in combination, always self
+    clearing ), which points at flyback re-triggering a gate rather than a dead
+    driver. guard_skips stayed 0 throughout, arguing against genuine pulse width
+    overlap. Meanwhile glitch_rejects reached 4.4 MILLION and grew another 720k
+    in 50 minutes ( ~240/s ), quantifying the flyback pollution that the
+    feedback scope shows optically: the CH2 hall line carries 9.8 kHz of noise
+    against a true ~164 Hz signal. **Suppressing this fault is the single
+    largest cheap COP win identified, worth about 0.08**; deadtime_us and
+    hall_blank_us are the first levers. Caution on the speed axis: with that
+    many rejected edges the reported rpm is suspect ( commanded 200, ran 620+ ),
+    so treat rpm as unreliable in any speed vs COP analysis while COP itself,
+    being power derived, stays valid.
+
+89. **The feedback scope earns its keep by making the crosstalk visible
+    ( 2026 07 29/30 ).** MSO5074 at .32, nothing polls it. Operator wiring:
+    scope CH2 = motor CH2 HALL input, scope CH4 = motor CH5 coil OUTPUT,
+    confirmed by frequency rather than assumption ( CH4 read 163.6 Hz and
+    613 rpm / 60 x 16 magnets = 163.5 Hz ). It arrived triggering on CH1 at
+    1.6 V while CH1 carried 45 mV, so it could never fire and simply free ran;
+    moved to CH4 with a level inside the coil swing, and the stale MATH1 =
+    CH1xCH2 / MATH2 = CH3xCH4 power leftovers from its power measuring days
+    turned off. CH4 still clips: flyback overshoot exceeds +/-40 V even at
+    10 V/div. Note the trigger reverted to CH1 once WITHOUT a power cycle, which
+    persistence testing later showed was not a PON failure ( learning 86 ), so
+    the AUTO button remains the prime suspect for silent config loss.
+
